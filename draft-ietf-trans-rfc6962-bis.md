@@ -920,7 +920,6 @@ The log stores information about its Merkle Tree in a `TreeHeadDataV2`:
     } SthExtension;
 
     struct {
-        uint64 timestamp;
         uint64 tree_size;
         NodeHash root_hash;
         SthExtension sth_extensions<0..2^16-1>;
@@ -937,9 +936,6 @@ value of the `sth_extension_type` field. Each document that registers a new
 `sth_extension_type` must describe how to interpret the corresponding
 `sth_extension_data`.
 
-`timestamp` is the current NTP Time [RFC5905], measured in milliseconds since
-the epoch (January 1, 1970, 00:00 UTC), ignoring leap seconds.
-
 `tree_size` is the number of entries currently in the log's Merkle Tree.
 
 `root_hash` is the root of the Merkle Hash Tree.
@@ -955,17 +951,8 @@ does understand.
 ## Signed Tree Head (STH)    {#STH}
 
 Periodically each log SHOULD sign its current tree head information (see
-{{tree_head}}) to produce an STH. When a client requests a log's latest STH (see
-{{get-sth}}), the log MUST return an STH that is no older than the log's MMD.
-However, STHs could be used to mark individual clients (by producing a new one
-for each query), so logs MUST NOT produce them more frequently than is declared
-in their metadata. In general, there is no need to produce a new STH unless
-there are new entries in the log; however, in the unlikely event that it
-receives no new submissions during an MMD period, the log SHALL sign the same
-Merkle Tree Hash with a fresh timestamp.
-
-An STH is a `TransItem` structure of type `signed_tree_head_v2`, which
-encapsulates a `SignedTreeHeadDataV2` structure:
+{{tree_head}}) to produce an STH. An STH is a `TransItem` structure of type
+`signed_tree_head_v2`, which encapsulates a `SignedTreeHeadDataV2` structure:
 
 ~~~~~~~~~~~
     struct {
@@ -979,10 +966,6 @@ encapsulates a `SignedTreeHeadDataV2` structure:
 
 `log_id` is this log's unique ID, encoded in an opaque vector as described in
 {{log_id}}.
-
-The `timestamp` in `tree_head` MUST be at least as recent as the most recent SCT
-timestamp in the tree. Each subsequent timestamp MUST be more recent than the
-timestamp of the previous update.
 
 `tree_head` contains the latest tree head information (see {{tree_head}}).
 
