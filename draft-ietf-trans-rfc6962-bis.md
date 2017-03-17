@@ -755,18 +755,15 @@ which encapsulates a `SignedCertificateTimestampDataV2` structure:
         LogID log_id;
         uint64 timestamp;
         SctExtension sct_extensions<0..2^16-1>;
-        digitally-signed struct {
-            TransItem timestamped_entry;
-        } signature;
+        opaque signature<0..2^16-1>;
     } SignedCertificateTimestampDataV2;
 ~~~~~~~~~~~
 
 `log_id` is this log's unique ID, encoded in an opaque vector as described in
 {{log_id}}.
 
-`timestamp` is equal to the timestamp from the
-`TimestampedCertificateEntryDataV2` structure encapsulated in the
-`timestamped_entry`.
+`timestamp` is equal to the timestamp from underlying the
+`TimestampedCertificateEntryDataV2` structure.
 
 `sct_extension_type` identifies a single extension from the IANA registry in
 {{sct_extension_types}}. At the time of writing, no extensions are specified.
@@ -784,10 +781,10 @@ extension that it does not understand, it SHOULD ignore that extension.
 Furthermore, an implementation MAY choose to ignore any extension(s) that it
 does understand.
 
-The encoding of the digitally-signed element is defined in [RFC5246].
-
-`timestamped_entry` is a `TransItem` structure that MUST be of type
-`x509_entry_v2` or `precert_entry_v2` (see {{tree_leaves}}).
+`signature` is the value of a signature computed using the appropriate signature
+algorithm for the log indicated by `log_id`.  The input to the signature is a
+`TransItem` structure that MUST be of type `x509_entry_v2` or `precert_entry_v2`
+(see {{tree_leaves}}).
 
 ## Merkle Tree Head    {#tree_head}
 
@@ -857,9 +854,7 @@ encapsulates a `SignedTreeHeadDataV2` structure:
     struct {
         LogID log_id;
         TreeHeadDataV2 tree_head;
-        digitally-signed struct {
-            TreeHeadDataV2 tree_head;
-        } signature;
+        opaque signature<0..2^16-1>;
     } SignedTreeHeadDataV2;
 ~~~~~~~~~~~
 
@@ -872,7 +867,9 @@ timestamp of the previous update.
 
 `tree_head` contains the latest tree head information (see {{tree_head}}).
 
-`signature` is a signature over the encoded `tree_head` field.
+`signature` is the value of a signature over the encoded `tree_head` field,
+computed using the appropriate signature algorithm for the log indicated by
+`log_id`.
 
 ## Merkle Consistency Proofs
 
