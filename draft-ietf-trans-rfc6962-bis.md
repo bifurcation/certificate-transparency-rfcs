@@ -742,23 +742,9 @@ preceding it. The final certificate MUST be a trust anchor accepted by the log.
 
 ## Log ID    {#log_id}
 
-Each log is identified by an OID, which is specified in the log's metadata and
-which MUST NOT be used to identify any other log. A log's operator MUST either
-allocate the OID themselves or request an OID from the Log ID Registry (see
-{{log_id_registry}}). Various data structures include the DER encoding of this
-OID, excluding the ASN.1 tag and length bytes, in an opaque vector:
-
-~~~~~~~~~~~
-    opaque LogID<2..127>;
-~~~~~~~~~~~
-
-Note that the ASN.1 length and the opaque vector length are identical in size (1
-byte) and value, so the DER encoding of the OID can be reproduced simply by
-prepending an OBJECT IDENTIFIER tag (0x06) to the opaque vector length and
-contents.
-
-OIDs used to identify logs are limited such that the DER encoding of their value
-is less than or equal to 127 octets.
+Each log is identified by a 32-bit log ID.  These IDs are allocated from a
+registry managed by IANA.  Log operators that do not wish to register a public
+log ID may select one from the private use range listed in {{log_id_registry}}.
 
 ## TransItem Structure
 
@@ -874,7 +860,7 @@ which encapsulates a `SignedCertificateTimestampDataV2` structure:
 
 ~~~~~~~~~~~
     struct {
-        LogID log_id;
+        uint32 log_id;
         uint64 timestamp;
         SctExtension sct_extensions<0..2^16-1>;
         opaque signature<0..2^16-1>;
@@ -936,7 +922,7 @@ Periodically each log SHOULD sign its current tree head information (see
 
 ~~~~~~~~~~~
     struct {
-        LogID log_id;
+        uint32 log_id;
         TreeHeadDataV2 tree_head;
         opaque signature<0..2^16-1>;
     } SignedTreeHeadDataV2;
@@ -959,7 +945,7 @@ encapsulates a `ConsistencyProofDataV2` structure:
 
 ~~~~~~~~~~~
     struct {
-        LogID log_id;
+        uint32 log_id;
         uint64 tree_size_1;
         uint64 tree_size_2;
         NodeHash consistency_path<1..2^16-1>;
@@ -984,7 +970,7 @@ encapsulates an `InclusionProofDataV2` structure:
 
 ~~~~~~~~~~~
     struct {
-        LogID log_id;
+        uint32 log_id;
         uint64 tree_size;
         uint64 leaf_index;
         NodeHash inclusion_path<1..2^16-1>;
@@ -1863,6 +1849,20 @@ point at this document.
 
 IANA is asked to add an entry for `ct_compliant(TBD)` to the "TLS
 CachedInformationType Values" registry that was defined in [RFC7924].
+
+## Log ID Registry {#log_id_registry}
+
+IANA is asked to establish a registry of Log IDs, named "CT Log ID Registry".
+Code points in this registry are four-octet values, assigned according to a
+First Come First Served policy.  The ranges indicated below are reserved for
+experimental and private use.
+
+|-------------------------+------------------+---------|
+| Value                   | Log Name         | Log URL |
+|-------------------------+------------------+---------|
+| 0xFE000000 - 0xFEFFFFFF | Experiemntal Use | N/A     |
+| 0xFF000000 - 0xFFFFFFFF | Private Use      | N/A     |
+|-------------------------+------------------+---------|
 
 ## Hash Algorithms    {#hash_algorithms}
 
