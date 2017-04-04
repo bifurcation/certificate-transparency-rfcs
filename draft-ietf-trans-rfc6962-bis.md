@@ -555,6 +555,49 @@ new entries to its Merkle Tree and sign the root of the tree.
 Log operators MUST NOT impose any conditions on retrieving or sharing data from
 the log.
 
+## Required Log Artifacts
+
+A log MUST provide the following artifacts:
+
+- A sequence of Signed Tree Heads
+- A consistency proof between any two STHs
+- For each entry, an inclusion proof to first STH that covers the entry
+
+The sequence of STHs comprises the official history of the log.  Each STH bears
+a sequence number, which allows a client to download the entire history of the
+log (see {{get-sth}}).  By downloading this history and consistency proofs
+along the sequence, a relying party can verify the append-only property of the
+log without having to download all of the entries in the log.
+
+The sequence numbers on STHs begin at 0 (for the first entry in the log) and
+increment by 1 each time a new official STH is issued.  The tree sizes
+reflected in STHs MUST increase monotonically, i.e., it MUST be the case that
+`tree_size(N) <= tree_size(N+1)` for each STH sequence number `N`.  The log
+MUST NOT produce any gaps in the sequence number space; it MUST be able to
+produce an STH for any sequence number up to the highest issued so far.
+
+> Note that this delays the availability of any inclusion proof until the next
+> STH is issued, which imposes a direct trade-off between proof availability
+> and caching volume.  You could mitigate this by having "non-official" /
+> "non-cacheable" STHs which could be issued more frequently.  Those being two
+> flavors of the same idea.
+> 
+> "Non-official" STHs would be outside of the main sequence.  You would have to
+> have some way to mark them (e.g., reserving sequence number 0xFF..FF) and a
+> requirement that the log produce consistency from non-official to the next
+> official.  The tricky question is how they would be made accessible, since
+> without sequence numbers, they wouldn't be visible through the get-sth
+> endpoint.
+>
+> "Non-cacheable" STHs would be the reverse -- all STHs would be in sequence,
+> and you would designate some of them as cacheable.  Then the inclusion proof
+> requirement would be that the log produce a proof to the proximal cacheable
+> STH.
+>
+> The latter option seems cleaner to me, since it preserves a master sequence
+> of STHs (which there is in fact).  Note, however, that you could easily do it
+> with an STH extension, i.e., by having cacheability indicated by an extension.
+
 ## Accepting Submissions
 
 Before accepting a submitted certificate or precertificate, the log MUST verify
@@ -806,6 +849,7 @@ The log stores information about its Merkle Tree in a `TreeHeadDataV2`:
     } SthExtension;
 
     struct {
+        uint64 sequence_number;
         uint64 timestamp;
         uint64 tree_size;
         NodeHash root_hash;
@@ -822,6 +866,9 @@ The interpretation of the `sth_extension_data` field is determined solely by the
 value of the `sth_extension_type` field. Each document that registers a new
 `sth_extension_type` must describe how to interpret the corresponding
 `sth_extension_data`.
+
+`sequence_number` indicates the position of this tree head in the sequence of
+STHs produced by this log.
 
 `timestamp` is the current NTP Time [RFC5905], measured in milliseconds since
 the epoch (January 1, 1970, 00:00 UTC), ignoring leap seconds.
@@ -1083,17 +1130,29 @@ Outputs:
 
 Errors are the same as in {{add-chain}}.
 
-## Retrieve Latest Signed Tree Head    {#get-sth}
+## Retrieve Signed Tree Head    {#get-sth}
 
 GET https://\<log server>/ct/v2/get-sth
 
-No inputs.
+: sequence_number:
+  : (Optional) The sequence number of the desired STH, in decimal.
+
+> If the `sequence_number` field is not provided, then the log MUST return the
+> latest STH.
 
 Outputs:
 
 : sth:
   : A base64 encoded `TransItem` of type `signed_tree_head_v2`, signed by this
     log, that is no older than the log's MMD.
+
+Error codes:
+
+|-------------------------+--------------------------------------------------------|
+| Error Code              | Meaning                                                |
+|-------------------------+--------------------------------------------------------|
+| sequence_number unknown | `sequence_number` is greater than the last STH issued. |
+|-------------------------+--------------------------------------------------------|
 
 ## Retrieve Merkle Consistency Proof between Two Signed Tree Heads    {#get-sth-consistency}
 
@@ -1150,9 +1209,6 @@ Inputs:
 : hash:
   : A base64 encoded v2 leaf hash.
 
-  tree_size:
-  : The tree_size of the tree on which to base the proof, in decimal.
-
 > The `hash` must be calculated as defined in {{tree_leaves}}. The `tree_size`
 > must designate an existing v2 STH. Because of skew, the front-end may not know
 > the requested STH. In that case, it will return the latest STH it knows, along
@@ -1168,19 +1224,18 @@ Outputs:
 
   sth:
   : A base64 encoded `TransItem` of type `signed_tree_head_v2`, signed by this
-    log.
+    log.  This STH MUST be the earliest STH covering the chosen certificate.
 
 > Note that no signature is required for the `inclusion` output as it is used to
 > verify inclusion in the selected STH, which is signed.
 
 Error codes:
 
-|-------------------+----------------------------------------------------------------------------------------------------------|
-| Error Code        | Meaning                                                                                                  |
-|-------------------+----------------------------------------------------------------------------------------------------------|
-| hash unknown      | `hash` is not the hash of a known leaf (may be caused by skew or by a known certificate not yet merged). |
-| tree_size unknown | `hash` is before the latest known STH but is not from an existing STH.                                   |
-|-------------------+----------------------------------------------------------------------------------------------------------|
+|--------------+----------------------------------------------------------------------------------------------------------|
+| Error Code   | Meaning                                                                                                  |
+|--------------+----------------------------------------------------------------------------------------------------------|
+| hash unknown | `hash` is not the hash of a known leaf (may be caused by skew or by a known certificate not yet merged). |
+|--------------+----------------------------------------------------------------------------------------------------------|
 
 See {{verify_inclusion}} for an outline of how to use the `inclusion` output.
 
@@ -1199,23 +1254,6 @@ Inputs:
 > The `hash` must be calculated as defined in {{tree_leaves}}. The `tree_size`
 > must designate an existing v2 STH.
 
-> Because of skew, the front-end may not know the requested STH or the requested
-> hash, which leads to a number of cases.
-
-> latest STH < requested STH
-> : Return latest STH.
-
-> latest STH > requested STH
-> : Return latest STH and a consistency proof between it and the requested STH
->   (see {{get-sth-consistency}}).
-
-> index of requested hash < latest STH
-> : Return `inclusion`.
-
-> Note that more than one case can be true, in which case the returned data is
-> their concatenation. It is also possible for none to be true, in which case
-> the front-end MUST return an empty response.
-
 Outputs:
 
 : inclusion:
@@ -1225,17 +1263,25 @@ Outputs:
 
   sth:
   : A base64 encoded `TransItem` of type `signed_tree_head_v2`, signed by this
-    log.
+    log. This STH MUST be the earliest STH covering the chosen certificate.
 
   consistency:
   : A base64 encoded `TransItem` of type `consistency_proof_v2` that proves the
-    consistency of the requested STH and the returned STH.
+    consistency from the return STH to the requested STH.
 
 > Note that no signature is required for the `inclusion` or `consistency`
 > outputs as they are used to verify inclusion in and consistency of STHs, which
 > are signed.
 
-Errors are the same as in {{get-proof-by-hash}}.
+Error codes:
+
+|---------------------+----------------------------------------------------------------------------------------------------------|
+| Error Code          | Meaning                                                                                                  |
+|---------------------+----------------------------------------------------------------------------------------------------------|
+| hash unknown        | `hash` is not the hash of a known leaf (may be caused by skew or by a known certificate not yet merged). |
+| tree_size too early | `hash` is not covered by the STH at `tree_size`.                                                         |
+| tree_size unknown   | `tree_size` is larger than the tree size at the last issued STH.                                         |
+|---------------------+----------------------------------------------------------------------------------------------------------|
 
 See {{verify_inclusion}} for an outline of how to use the `inclusion` output,
 and see {{verify_consistency}} for an outline of how to use the `consistency`
